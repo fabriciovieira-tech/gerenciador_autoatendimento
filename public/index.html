@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Fila Otimizado</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --text: #0f172a; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 1000px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; flex: 1; min-width: 280px; }
+        
+        /* Telão Principal */
+        .painel-principal { width: 100%; background: #1e293b; color: white; margin-bottom: 20px; border: 4px solid #334155; }
+        .senha-display { font-size: 6rem; font-weight: bold; margin: 10px 0; color: #10b981; line-height: 1; }
+        .info-fila { font-size: 1.2rem; color: #cbd5e1; margin-top: 10px; }
+        .destaque-proxima { color: #fbbf24; font-weight: bold; }
+
+        /* Estilização dos Botões */
+        button { border: none; padding: 15px 30px; font-size: 1.2rem; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; width: 100%; margin-top: 10px; }
+        button:hover { opacity: 0.9; transform: scale(0.98); }
+        .btn-gerar { background: #10b981; color: white; }
+        .btn-chamar { background: var(--primary); color: white; }
+        
+        /* Caixa de Alertas */
+        .alert { margin-top: 15px; padding: 10px; border-radius: 6px; display: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="card painel-principal">
+        <h2 style="margin: 0; color: #94a3b8;">ATENDIMENTO ATUAL</h2>
+        <div class="senha-display" id="displaySenhaAtual">000</div>
+        
+        <div class="info-fila">
+            Pessoas aguardando na fila: <span id="displayQtdFila">0</span><br><br>
+            A próxima senha disponível será a: <span class="destaque-proxima" id="displayProximaDisp">---</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h3 style="color: #10b981;">Totem do Cliente</h3>
+            <p>Retire sua senha física de atendimento aqui.</p>
+            <button class="btn-gerar" onclick="gerarSenha()">Emitir Senha</button>
+            <div id="msgCliente" class="alert" style="background: #d1fae5; color: #065f46;"></div>
+        </div>
+
+        <div class="card">
+            <h3 style="color: #2563eb;">Painel do Atendente</h3>
+            <p>Finalizou o cliente atual? Chame o próximo.</p>
+            <button class="btn-chamar" onclick="chamarProximo()">Chamar Próxima Senha</button>
+            <div id="msgAtendente" class="alert" style="background: #dbeafe; color: #1e40af;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Sincroniza os contadores da tela com o estado interno do NeDB/Server
+        async function atualizarPainel() {
+            try {
+                const res = await fetch('/api/status');
+                if (!res.ok) return; // Proteção se a API falhar momentaneamente
+                
+                const data = await res.json();
+                document.getElementById('displaySenhaAtual').innerText = data.senhaAtual;
+                document.getElementById('displayProximaDisp').innerText = data.proximaDisponivel;
+                document.getElementById('displayQtdFila').innerText = data.pessoasNaFila;
+            } catch (error) {
+                console.error("Erro ao sincronizar dados com o servidor:", error);
+            }
+        }
+
+        // Pooling estável a cada 1.5 segundos
+        setInterval(atualizarPainel, 1500);
+        atualizarPainel();
+
+        // Acionamento do Totem do Cliente
+        async function gerarSenha() {
+            const msgBox = document.getElementById('msgCliente');
+            try {
+                const res = await fetch('/api/gerar', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (!res.ok) throw new Error('Falha na requisição de geração');
+                
+                const data = await res.json();
+                msgBox.innerText = `Sua senha é: ${data.senha}`;
+                msgBox.style.background = '#d1fae5';
+                msgBox.style.color = '#065f46';
+                msgBox.style.display = 'block';
+                
+                setTimeout(() => msgBox.style.display = 'none', 5000);
+                atualizarPainel(); 
+            } catch (error) {
+                console.error(error);
+                alert('Erro de comunicação. Verifique se o backend está ligado.');
+            }
+        }
+
+        // Acionamento do botão do Atendente
+        async function chamarProximo() {
+            const msgBox = document.getElementById('msgAtendente');
+            try {
+                const res = await fetch('/api/chamar', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (res.status === 404) {
+                    msgBox.style.background = '#fee2e2';
+                    msgBox.style.color = '#991b1b';
+                    msgBox.innerText = 'Fila vazia! Ninguém aguardando.';
+                } else if (!res.ok) {
+                    throw new Error('Falha na resposta ao chamar próximo');
+                } else {
+                    const data = await res.json();
+                    msgBox.style.background = '#dbeafe';
+                    msgBox.style.color = '#1e40af';
+                    msgBox.innerText = `Senha ${data.senhaChamada} chamada com sucesso!`;
+                }
+                
+                msgBox.style.display = 'block';
+                setTimeout(() => msgBox.style.display = 'none', 4000);
+                atualizarPainel(); 
+            } catch (error) {
+                console.error(error);
+                alert('Erro de comunicação. Verifique os logs do terminal.');
+            }
+        }
+    </script>
+</body>
+</html>
